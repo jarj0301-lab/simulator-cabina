@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flight Deck Simulator - Cockpit POV</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b0f19;
+            color: #e2e8f0;
+            overflow: hidden;
+            user-select: none;
+        }
+        .font-mono-tech {
+            font-family: 'Share Tech Mono', monospace;
+        }
+        .cockpit-shadow {
+            box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.9);
+        }
+        .led-glow {
+            text-shadow: 0 0 8px currentColor;
+        }
+        /* Custom scrollbars and styling */
+        input[type=range]::-webkit-slider-thumb {
+            background: #3b82f6;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col justify-between select-none">
+
+    <!-- TOP HEADER / STATUS BAR -->
+    <header class="bg-slate-900/90 border-b border-slate-800 px-4 py-2 flex justify-between items-center z-20 backdrop-blur-md">
+        <div class="flex items-center space-x-3">
+            <div class="bg-blue-600 text-white px-2.5 py-1 rounded font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-lg shadow-blue-500/20">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                Boeing 737-800 Cockpit POV
+            </div>
+            <div id="flight-phase" class="text-xs font-mono-tech bg-slate-800 px-3 py-1 rounded text-yellow-400 border border-slate-700">
+                FASE: PREPARACIÓN EN PISTA (HOLD SHORT)
+            </div>
+        </div>
+        <div class="flex items-center space-x-4 text-xs font-mono-tech">
+            <div class="hidden md:flex items-center gap-2 bg-slate-800/80 px-3 py-1 rounded border border-slate-700">
+                <span class="text-slate-400">V1:</span> <span class="text-white font-bold">115 KTS</span>
+                <span class="text-slate-400 ml-2">VR:</span> <span class="text-white font-bold">135 KTS</span>
+                <span class="text-slate-400 ml-2">V2:</span> <span class="text-white font-bold">150 KTS</span>
+            </div>
+            <button onclick="toggleMute()" id="mute-btn" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded border border-slate-700 transition flex items-center gap-1">
+                🔊 Audio ON
+            </button>
+            <button onclick="resetSimulation()" class="bg-rose-600/80 hover:bg-rose-600 text-white px-3 py-1 rounded transition font-bold shadow-lg shadow-rose-900/30">
+                Reiniciar Vuelo
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN COCKPIT VIEWPORT (OUTSIDE WORLD CANVAS + OVERLAYS) -->
+    <main class="relative flex-1 w-full overflow-hidden bg-slate-950 flex flex-col justify-center items-center">
+        
+        <!-- Outside World Canvas (Runway, Sky, Horizon) -->
+        <canvas id="world-canvas" class="absolute inset-0 w-full h-full z-0"></canvas>
+
+        <!-- Windshield Frame / Cockpit Structure Overlay -->
+        <div class="absolute inset-0 pointer-events-none cockpit-shadow border-[16px] md:border-[24px] border-slate-900 z-10 rounded-xl overflow-hidden flex flex-col justify-between">
+            <!-- Center pillar simulation -->
+            <div class="absolute top-0 left-1/2 -translate-x-1/2 w-3 md:w-5 h-24 bg-gradient-to-b from-slate-900 to-slate-800/80 border-x border-slate-700/50 shadow-2xl"></div>
+            <!-- Windshield wiper simulation top left/right -->
+            <div class="absolute top-2 left-10 w-2 h-16 bg-slate-800 rotate-12 rounded opacity-50"></div>
+            <div class="absolute top-2 right-10 w-2 h-16 bg-slate-800 -rotate-12 rounded opacity-50"></div>
+        </div>
+
+        <!-- Warning / Notification HUD Banner in Cockpit -->
+        <div id="cockpit-alert" class="absolute top-10 md:top-14 z-20 transition-all duration-300 transform -translate-y-10 opacity-0 pointer-events-none">
+            <div id="cockpit-alert-text" class="bg-amber-500/90 text-slate-950 font-black px-6 py-2 rounded-lg shadow-2xl font-mono-tech text-base md:text-xl border border-amber-300 uppercase tracking-widest text-center">
+                WARNING: CHECK SPEED
+            </div>
+        </div>
+    </main>
+
+    <!-- INSTRUMENT PANEL (FLIGHT DECK DASHBOARD) -->
+    <footer class="bg-slate-900 border-t-2 border-slate-800 p-3 md:p-4 z-20 grid grid-cols-1 lg:grid-cols-12 gap-3 shadow-2xl">
+        
+        <!-- FLIGHT INSTRUMENTS GROUP (GUMPS / Primary Flight Display & Glass Panel) -->
+        <div class="lg:col-span-7 bg-slate-950 p-3 rounded-xl border border-slate-800 flex flex-wrap justify-around items-center gap-3">
+            
+            <!-- Airspeed Indicator (ASI) -->
+            <div class="flex flex-col items-center bg-slate-900 p-2.5 rounded-lg border border-slate-800 w-28 text-center shadow-inner">
+                <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">ASI (KTS)</span>
+                <span id="val-speed" class="text-2xl font-mono-tech font-bold text-cyan-400 led-glow mt-1">0</span>
+                <div class="w-full bg-slate-800 h-1.5 mt-2 rounded-full overflow-hidden">
+                    <div id="bar-speed" class="bg-cyan-500 h-full w-0 transition-all duration-100"></div>
+                </div>
+            </div>
+
+            <!-- Attitude Indicator (Artificial Horizon & Pitch/Roll) -->
+            <div class="flex flex-col items-center bg-slate-900 p-2.5 rounded-lg border border-slate-800 w-32 text-center shadow-inner">
+                <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">PITCH / ROLL</span>
+                <div class="flex justify-between w-full text-xs font-mono-tech mt-1 text-slate-300">
+                    <span>P: <strong id="val-pitch" class="text-white">+0°</strong></span>
+                    <span>R: <strong id="val-roll" class="text-white">0°</strong></span>
+                </div>
+                <div class="w-full bg-slate-800 h-1.5 mt-2 rounded-full overflow-hidden">
+                    <div id="bar-pitch" class="bg-emerald-500 h-full w-1/2 transition-all duration-100"></div>
+                </div>
+            </div>
+
+            <!-- Altimeter (Altitude in Feet) -->
+            <div class="flex flex-col items-center bg-slate-900 p-2.5 rounded-lg border border-slate-800 w-28 text-center shadow-inner">
+                <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">ALT (FT)</span>
+                <span id="val-alt" class="text-2xl font-mono-tech font-bold text-emerald-400 led-glow mt-1">0</span>
+                <div class="w-full bg-slate-800 h-1.5 mt-2 rounded-full overflow-hidden">
+                    <div id="bar-alt" class="bg-emerald-500 h-full w-0 transition-all duration-100"></div>
+                </div>
+            </div>
+
+            <!-- Vertical Speed Indicator (VSI) -->
+            <div class="flex flex-col items-center bg-slate-900 p-2.5 rounded-lg border border-slate-800 w-28 text-center shadow-inner">
+                <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">VSI (FT/M)</span>
+                <span id="val-vsi" class="text-xl font-mono-tech font-bold text-amber-400 led-glow mt-1">+0</span>
+                <span class="text-[9px] text-slate-500 mt-1">Variómetro</span>
+            </div>
+
+            <!-- Engine N1 / RPM -->
+            <div class="flex flex-col items-center bg-slate-900 p-2.5 rounded-lg border border-slate-800 w-28 text-center shadow-inner">
+                <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">N1 (RPM %)</span>
+                <span id="val-rpm" class="text-2xl font-mono-tech font-bold text-rose-400 led-glow mt-1">0%</span>
+                <div class="w-full bg-slate-800 h-1.5 mt-2 rounded-full overflow-hidden">
+                    <div id="bar-rpm" class="bg-rose-500 h-full w-0 transition-all duration-100"></div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- CONTROLS & FLIGHT SYSTEMS GROUP -->
+        <div class="lg:col-span-5 bg-slate-950 p-3 rounded-xl border border-slate-800 flex flex-col justify-between gap-3">
+            
+            <div class="grid grid-cols-3 gap-2">
+                <!-- Throttle Control Slider -->
+                <div class="col-span-2 bg-slate-900 p-2 rounded-lg border border-slate-800 flex flex-col justify-between">
+                    <div class="flex justify-between items-center text-xs">
+                        <span class="text-slate-400 font-bold uppercase tracking-wider">Throttle (Potencia)</span>
+                        <span id="throttle-label" class="font-mono-tech text-blue-400 font-bold">0%</span>
+                    </div>
+                    <input type="range" id="throttle-slider" min="0" max="100" value="0" class="w-full mt-2 accent-blue-500 bg-slate-800 rounded-lg cursor-pointer h-2" oninput="setThrottle(this.value)">
+                </div>
+
+                <!-- Flaps Selector -->
+                <div class="bg-slate-900 p-2 rounded-lg border border-slate-800 flex flex-col justify-between">
+                    <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Flaps</span>
+                    <div class="flex justify-between gap-1 mt-1">
+                        <button onclick="setFlaps(0)" id="flap-0" class="flex-1 py-1 text-xs font-bold rounded bg-blue-600 text-white transition">0°</button>
+                        <button onclick="setFlaps(15)" id="flap-15" class="flex-1 py-1 text-xs font-bold rounded bg-slate-800 text-slate-300 transition">15°</button>
+                        <button onclick="setFlaps(30)" id="flap-30" class="flex-1 py-1 text-xs font-bold rounded bg-slate-800 text-slate-300 transition">30°</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons Row -->
+            <div class="grid grid-cols-3 gap-2">
+                <!-- Parking Brakes Toggle -->
+                <button onclick="toggleBrakes()" id="brakes-btn" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-3 rounded-lg text-xs shadow-lg transition flex flex-col items-center justify-center">
+                    <span>FRENOS DE PARQUEO</span>
+                    <span id="brakes-status" class="text-[10px] font-mono-tech font-normal text-emerald-200">APLICADOS (ON)</span>
+                </button>
+
+                <!-- Landing Gear Toggle -->
+                <button onclick="toggleGear()" id="gear-btn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-lg text-xs shadow-lg transition flex flex-col items-center justify-center">
+                    <span>TREN DE ATERRIZAJE</span>
+                    <span id="gear-status" class="text-[10px] font-mono-tech font-normal text-blue-200">BAJADO (DOWN)</span>
+                </button>
+
+                <!-- Yoke Pull / Rotate Button -->
+                <button onmousedown="startRotation()" onmouseup="endRotation()" ontouchstart="startRotation()" ontouchend="endRotation()" id="yoke-btn" class="bg-amber-600 hover:bg-amber-500 active:bg-amber-700 text-white font-bold py-2 px-3 rounded-lg text-xs shadow-lg transition flex flex-col items-center justify-center">
+                    <span>TIRAR BASTÓN (YOKE)</span>
+                    <span class="text-[10px] font-mono-tech font-normal text-amber-200">SPACE / CLIC</span>
+                </button>
+            </div>
+
+        </div>
+
+    </footer>
+
+    <!-- SUCCESS / GAME OVER MODAL -->
+    <div id="modal-overlay" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center hidden">
+        <div class="bg-slate-900 border border-slate-700 p-8 rounded-2xl max-w-md w-full mx-4 shadow-2xl text-center">
+            <div id="modal-icon" class="text-5xl mb-3">✈️</div>
+            <h2 id="modal-title" class="text-2xl font-black text-white tracking-wide">¡DESPEGUE EXITOSO!</h2>
+            <p id="modal-desc" class="text-sm text-slate-300 mt-2 mb-6">Has completado con éxito la carrera de despegue y alcanzado la altitud de seguridad.</p>
+            <div id="modal-stats" class="bg-slate-950 p-4 rounded-xl mb-6 text-left font-mono-tech text-xs space-y-2 border border-slate-800">
+                <!-- Stats injected via JS -->
+            </div>
+            <button onclick="resetSimulation()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl transition shadow-lg shadow-blue-600/30">
+                Volver a Volar
+            </button>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT SIMULATION ENGINE -->
+    <script>
+        // --- AUDIO SYNTHESIZER (Web Audio API) ---
+        let audioCtx = null;
+        let engineOsc = null;
+        let engineGain = null;
+        let isMuted = false;
+
+        function initAudio() {
+            if (audioCtx) return;
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // Engine Jet Noise Generator
+                engineOsc = audioCtx.createOscillator();
+                engineOsc.type = 'sawtooth';
+                engineOsc.frequency.setValueAtTime(40, audioCtx.currentTime);
+
+                let filter = audioCtx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(300, audioCtx.currentTime);
+
+                engineGain = audioCtx.createGain();
+                engineGain.gain.setValueAtTime(0.0, audioCtx.currentTime);
+
+                engineOsc.connect(filter);
+                filter.connect(engineGain);
+                engineGain.connect(audioCtx.destination);
+                engineOsc.start();
+            } catch(e) {
+                console.log("Audio Context blocked or not supported", e);
+            }
+        }
+
+        function updateAudioEngine(throttleVal) {
+            if (!audioCtx || isMuted) {
+                if (engineGain) engineGain.gain.setValueAtTime(0, audioCtx.currentTime);
+                return;
+            }
+            if (audioCtx.state === 'suspended') audioCtx.state.resume();
+            
+            let norm = throttleVal / 100;
+            let freq = 40 + norm * 140;
+            let gain = norm * 0.15;
+            
+            engineOsc.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.1);
+            engineGain.gain.setTargetAtTime(gain, audioCtx.currentTime, 0.1);
+        }
+
+        function playBeep(freq = 600, duration = 0.15) {
+            if (!audioCtx || isMuted) return;
+            try {
+                let osc = audioCtx.createOscillator();
+                let gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch(e){}
+        }
+
+        function toggleMute() {
+            isMuted = !isMuted;
+            let btn = document.getElementById('mute-btn');
+            if (isMuted) {
+                btn.innerText = "🔇 Audio OFF";
+                if (engineGain) engineGain.gain.setValueAtTime(0, audioCtx.currentTime);
+            } else {
+                btn.innerText = "🔊 Audio ON";
+                updateAudioEngine(state.throttle);
+            }
+        }
+
+        // --- SIMULATION STATE ---
+        const state = {
+            phase: 'prep', // 'prep', 'roll', 'rotation', 'climb', 'success', 'crash'
+            speed: 0,      // Knots
+            alt: 0,        // Feet
+            vsi: 0,        // Vertical speed ft/min
+            pitch: 0,      // Degrees pitch up/down
+            roll: 0,       // Degrees roll
+            throttle: 0,   // % 0-100
+            flaps: 15,     // 0, 15, 30
+            gearDown: true,
+            brakesOn: true,
+            pullingYoke: false,
+            distance: 0,   // Meters traveled down runway
+            runwayLength: 3000,
+            hasPlayedV1: false,
+            hasPlayedVR: false,
+            hasPlayedV2: false,
+            crashReason: ''
+        };
+
+        // --- CANVAS & WORLD RENDERING ---
+        const canvas = document.getElementById('world-canvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Runway centerline lights & texture markers
+        let centerLines = [];
+        for (let i = 0; i < 40; i++) {
+            centerLines.push(i * 40);
+        }
+
+        function renderWorld() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            let width = canvas.width;
+            let height = canvas.height;
+            let horizonY = height * 0.45 - (state.pitch * 6);
+
+            // 1. SKY GRADIENT (Based on pitch/altitude)
+            let skyGrad = ctx.createLinearGradient(0, 0, 0, horizonY);
+            skyGrad.addColorStop(0, '#0284c7');
+            skyGrad.addColorStop(1, '#bae6fd');
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, width, horizonY);
+
+            // Sun / Clouds in sky
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.beginPath();
+            ctx.arc(width * 0.75, horizonY - 80, 40, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 2. GROUND / TERRAIN / RUNWAY
+            let groundGrad = ctx.createLinearGradient(0, horizonY, 0, height);
+            groundGrad.addColorStop(0, '#15803d'); // Green grass sides
+            groundGrad.addColorStop(1, '#052e16');
+            ctx.fillStyle = groundGrad;
+            ctx.fillRect(0, horizonY, width, height - horizonY);
+
+            // If on ground or low altitude, render Runway perspective
+            if (state.alt < 800) {
+                // Runway polygon perspective
+                let rwWidthBottom = width * 0.7;
+                let rwWidthTop = width * 0.15;
+                let rwTopX = width / 2;
+
+                ctx.fillStyle = '#1e293b'; // Asphalt dark grey
+                ctx.beginPath();
+                ctx.moveTo((width - rwWidthBottom) / 2, height);
+                ctx.lineTo((width + rwWidthBottom) / 2, height);
+                ctx.lineTo(rwTopX + rwWidthTop / 2, horizonY);
+                ctx.lineTo(rwTopX - rwWidthTop / 2, horizonY);
+                ctx.closePath();
+                ctx.fill();
+
+                // Runway Edge White Lines
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.moveTo((width - rwWidthBottom) / 2, height);
+                ctx.lineTo(rwTopX - rwWidthTop / 2, horizonY);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo((width + rwWidthBottom) / 2, height);
+                ctx.lineTo(rwTopX + rwWidthTop / 2, horizonY);
+                ctx.stroke();
+
+                // Center dashed line animation
+                ctx.strokeStyle = '#facc15'; // Yellow centerline
+                ctx.lineWidth = 6;
+                let speedFactor = state.speed * 0.5;
+                
+                centerLines.forEach((pos, idx) => {
+                    let adjustedPos = (pos - (state.distance * 0.3)) % 1600;
+                    if (adjustedPos < 0) adjustedPos += 1600;
+                    
+                    // Map distance to perspective Y between horizonY and height
+                    let ratio = adjustedPos / 1600; // 0 at horizon, 1 at bottom
+                    let y = horizonY + (height - horizonY) * (ratio * ratio);
+                    if (y >= horizonY && y <= height) {
+                        let curWidthRatio = rwWidthTop + (rwWidthBottom - rwWidthTop) * ratio;
+                        let lineW = Math.max(2, curWidthRatio * 0.02);
+                        let lineH = Math.max(5, (height - horizonY) * 0.03 * (1 - ratio));
+                        
+                        ctx.fillStyle = '#facc15';
+                        ctx.fillRect(width / 2 - lineW / 2, y, lineW, lineH);
+                    }
+                });
+            } else {
+                // Clouds / Horizon in air
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                ctx.fillRect(0, horizonY - 10, width, 20);
+            }
+
+            // Windshield glare effect
+            let glareGrad = ctx.createLinearGradient(0, 0, width, height);
+            glareGrad.addColorStop(0, 'rgba(255,255,255,0.08)');
+            glareGrad.addColorStop(0.5, 'rgba(255,255,255,0)');
+            glareGrad.addColorStop(1, 'rgba(255,255,255,0.03)');
+            ctx.fillStyle = glareGrad;
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        // --- SIMULATION PHYSICS & LOOP ---
+        let lastTime = performance.now();
+
+        function updatePhysics(timestamp) {
+            let dt = (timestamp - lastTime) / 1000;
+            if (dt > 0.1) dt = 0.1;
+            lastTime = timestamp;
+
+            if (state.phase !== 'success' && state.phase !== 'crash') {
+                
+                // 1. Acceleration / Throttle Logic
+                let targetAccel = (state.throttle / 100) * 12; // Max acceleration kts/s
+                if (state.brakesOn) {
+                    targetAccel = -15; // Brakes hold aircraft
+                } else {
+                    // Drag & friction
+                    targetAccel -= (state.speed * state.speed) * 0.00015;
+                    if (state.flaps === 15) targetAccel -= 0.5; // Slight drag with takeoff flaps
+                    if (state.flaps === 30) targetAccel -= 1.2;
+                }
+
+                state.speed += targetAccel * dt;
+                if (state.speed < 0) state.speed = 0;
+
+                // 2. Distance traveled on runway
+                if (state.alt === 0) {
+                    state.distance += state.speed * 0.5 * dt;
+                }
+
+                // 3. Yoke / Pitch Control
+                if (state.pullingYoke && state.speed > 50) {
+                    let pitchRate = 12 * dt; // Pitch rate per second
+                    if (state.flaps !== 15 && state.speed < 130) {
+                        pitchRate *= 0.5; // Harder to pitch without correct flaps
+                    }
+                    state.pitch += pitchRate;
+                    if (state.pitch > 20) state.pitch = 20;
+                } else if (!state.pullingYoke && state.alt > 0) {
+                    // Return pitch towards neutral or stable climb pitch
+                    if (state.pitch > 8) state.pitch -= 4 * dt;
+                } else if (state.alt === 0 && !state.pullingYoke) {
+                    state.pitch = 0; // Ground attitude
+                }
+
+                // 4. Lift & Takeoff Physics
+                let requiredRotationSpeed = 135; // VR
+                let liftCoeff = (state.speed / requiredRotationSpeed) * (state.pitch / 10);
+                if (state.flaps === 15) liftCoeff *= 1.2; // Flaps give extra lift
+
+                if (state.alt > 0) {
+                    // Airborne physics
+                    let climbRate = (state.speed - 110) * (state.pitch / 5) * 15;
+                    if (climbRate < -500) climbRate = -500;
+                    state.vsi = Math.round(climbRate);
+                    state.alt += (state.vsi / 60) * dt;
+
+                    if (state.alt < 0) {
+                        state.alt = 0;
+                        state.vsi = 0;
+                    }
+                } else {
+                    // On ground
+                    if (state.speed > requiredRotationSpeed && state.pitch > 5 && !state.brakesOn) {
+                        // Successful Lift-off!
+                        state.alt = 1;
+                        state.vsi = 300;
+                    }
+                }
+
+                // 5. Phase Management & Audio Callouts
+                if (state.speed > 10 && state.phase === 'prep') {
+                    state.phase = 'roll';
+                    updatePhaseUI("FASE: CARRERA DE DESPEGUE (TAKEOFF ROLL)");
+                }
+
+                // V1 Callout (115 kts)
+                if (state.speed >= 115 && !state.hasPlayedV1) {
+                    state.hasPlayedV1 = true;
+                    playBeep(800, 0.1);
+                    setTimeout(() => playBeep(800, 0.1), 150);
+                    showCockpitAlert("¡V1 - DECISIÓN!");
+                }
+
+                // VR Callout (135 kts)
+                if (state.speed >= 135 && !state.hasPlayedVR) {
+                    state.hasPlayedVR = true;
+                    playBeep(1000, 0.2);
+                    showCockpitAlert("¡V_R - ROTATE (TIRA DEL BASTÓN)!");
+                }
+
+                // V2 Callout (150 kts)
+                if (state.speed >= 150 && !state.hasPlayedV2) {
+                    state.hasPlayedV2 = true;
+                    playBeep(1200, 0.15);
+                    showCockpitAlert("¡V2 - SEGURIDAD DE ASCENSO!");
+                }
+
+                // Check Runway Excursion (Failed to rotate before end of runway)
+                if (state.alt === 0 && state.distance > state.runwayLength) {
+                    triggerCrash("¡Salida de pista! No alcanzaste la velocidad y rotación a tiempo.");
+                }
+
+                // Check Tailstrike (Rotated way too early or excessive pitch on ground)
+                if (state.alt === 0 && state.pitch > 10 && state.speed < 110) {
+                    triggerCrash("¡Tailstrike / Pérdida! Rotación prematura con velocidad insuficiente.");
+                }
+
+                // Check Success (Climbed above 1000 ft safely)
+                if (state.alt >= 1000 && state.phase !== 'success') {
+                    state.phase = 'success';
+                    triggerSuccess();
+                }
+            }
+
+            // Update Audio Engine with current throttle
+            updateAudioEngine(state.throttle);
+
+            // Render HUD Instruments & World
+            renderInstruments();
+            renderWorld();
+
+            requestAnimationFrame(updatePhysics);
+        }
+
+        // --- UI UPDATERS ---
+        function renderInstruments() {
+            // Speed
+            let speedInt = Math.round(state.speed);
+            document.getElementById('val-speed').innerText = speedInt;
+            document.getElementById('bar-speed').style.width = Math.min(100, (speedInt / 200) * 100) + '%';
+
+            // Pitch & Roll
+            document.getElementById('val-pitch').innerText = (state.pitch >= 0 ? '+' : '') + Math.round(state.pitch) + '°';
+            document.getElementById('val-roll').innerText = Math.round(state.roll) + '°';
+            let pitchPercent = 50 + (state.pitch / 20) * 50;
+            document.getElementById('bar-pitch').style.height = Math.max(0, Math.min(100, pitchPercent)) + '%';
+
+            // Altitude
+            let altInt = Math.round(state.alt);
+            document.getElementById('val-alt').innerText = altInt;
+            document.getElementById('bar-alt').style.width = Math.min(100, (altInt / 2000) * 100) + '%';
+
+            // VSI
+            document.getElementById('val-vsi').innerText = (state.vsi >= 0 ? '+' : '') + state.vsi;
+
+            // RPM / N1
+            document.getElementById('val-rpm').innerText = state.throttle + '%';
+            document.getElementById('bar-rpm').style.width = state.throttle + '%';
+        }
+
+        function updatePhaseUI(text) {
+            document.getElementById('flight-phase').innerText = text;
+        }
+
+        let alertTimeout = null;
+        function showCockpitAlert(text) {
+            let alertBox = document.getElementById('cockpit-alert');
+            let alertText = document.getElementById('cockpit-alert-text');
+            alertText.innerText = text;
+            alertBox.classList.remove('-translate-y-10', 'opacity-0');
+            alertBox.classList.add('translate-y-0', 'opacity-100');
+            
+            if (alertTimeout) clearTimeout(alertTimeout);
+            alertTimeout = setTimeout(() => {
+                alertBox.classList.remove('translate-y-0', 'opacity-100');
+                alertBox.classList.add('-translate-y-10', 'opacity-0');
+            }, 3500);
+        }
+
+        // --- CONTROLLER FUNCTIONS ---
+        function setThrottle(val) {
+            initAudio();
+            state.throttle = parseInt(val);
+            document.getElementById('throttle-label').innerText = state.throttle + '%';
+        }
+
+        function setFlaps(deg) {
+            state.flaps = deg;
+            [0, 15, 30].forEach(d => {
+                let btn = document.getElementById(`flap-${d}`);
+                if (d === deg) {
+                    btn.className = "flex-1 py-1 text-xs font-bold rounded bg-blue-600 text-white transition shadow-md";
+                } else {
+                    btn.className = "flex-1 py-1 text-xs font-bold rounded bg-slate-800 text-slate-300 transition hover:bg-slate-700";
+                }
+            });
+            showCockpitAlert(`FLAPS CONFIGURADOS A ${deg}°`);
+        }
+
+        function toggleBrakes() {
+            state.brakesOn = !state.brakesOn;
+            let btn = document.getElementById('brakes-btn');
+            let status = document.getElementById('brakes-status');
+            if (state.brakesOn) {
+                btn.className = "bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-3 rounded-lg text-xs shadow-lg transition flex flex-col items-center justify-center";
+                status.innerText = "APLICADOS (ON)";
+            } else {
+                btn.className = "bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2 px-3 rounded-lg text-xs shadow-lg transition flex flex-col items-center justify-center border border-slate-700";
+                status.innerText = "LIBERADOS (OFF)";
+                showCockpitAlert("FRENOS LIBERADOS - ¡POTENCIA MÁXIMA!");
+            }
+        }
+
+        function toggleGear() {
+            state.gearDown = !state.gearDown;
+            let btn = document.getElementById('gear-btn');
+            let status = document.getElementById('gear-status');
+            if (state.gearDown) {
+                btn.className = "bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-lg text-xs shadow-lg transition flex flex-col items-center justify-center";
+                status.innerText = "BAJADO (DOWN)";
+            } else {
+                btn.className = "bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2 px-3 rounded-lg text-xs shadow-lg transition flex flex-col items-center justify-center border border-slate-700";
+                status.innerText = "RETRAÍDO (UP)";
+                showCockpitAlert("TREN DE ATERRIZAJE RETRAÍDO");
+            }
+        }
+
+        function startRotation() {
+            initAudio();
+            state.pullingYoke = true;
+            let yokeBtn = document.getElementById('yoke-btn');
+            yokeBtn.classList.remove('bg-amber-600', 'hover:bg-amber-500');
+            yokeBtn.classList.add('bg-amber-500', 'scale-95');
+        }
+
+        function endRotation() {
+            state.pullingYoke = false;
+            let yokeBtn = document.getElementById('yoke-btn');
+            yokeBtn.classList.remove('bg-amber-500', 'scale-95');
+            yokeBtn.classList.add('bg-amber-600', 'hover:bg-amber-500');
+        }
+
+        // --- KEYBOARD CONTROLS ---
+        window.addEventListener('keydown', (e) => {
+            initAudio();
+            if (e.code === 'Space') {
+                e.preventDefault();
+                startRotation();
+            } else if (e.code === 'ArrowUp' || e.code === 'KeyW') {
+                setThrottle(Math.min(100, state.throttle + 10));
+                document.getElementById('throttle-slider').value = state.throttle;
+            } else if (e.code === 'ArrowDown' || e.code === 'KeyS') {
+                setThrottle(Math.max(0, state.throttle - 10));
+                document.getElementById('throttle-slider').value = state.throttle;
+            } else if (e.code === 'KeyB') {
+                toggleBrakes();
+            } else if (e.code === 'KeyG') {
+                toggleGear();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') {
+                endRotation();
+            }
+        });
+
+        // --- ENDGAME MODALS ---
+        function triggerCrash(reason) {
+            state.phase = 'crash';
+            playBeep(200, 0.5);
+            let modal = document.getElementById('modal-overlay');
+            document.getElementById('modal-icon').innerText = '💥';
+            document.getElementById('modal-title').innerText = 'INCIDENTE DE DESPEGUE';
+            document.getElementById('modal-title').className = 'text-2xl font-black text-rose-500 tracking-wide';
+            document.getElementById('modal-desc').innerText = reason;
+            document.getElementById('modal-stats').innerHTML = `
+                <div class="flex justify-between"><span>Velocidad Final:</span> <span class="text-white">${Math.round(state.speed)} KTS</span></div>
+                <div class="flex justify-between"><span>Distancia Recorrida:</span> <span class="text-white">${Math.round(state.distance)} m</span></div>
+                <div class="flex justify-between"><span>Motivo:</span> <span class="text-rose-400">Falla de Procedimiento</span></div>
+            `;
+            modal.classList.remove('hidden');
+        }
+
+        function triggerSuccess() {
+            playBeep(800, 0.3);
+            setTimeout(() => playBeep(1200, 0.4), 200);
+            let modal = document.getElementById('modal-overlay');
+            document.getElementById('modal-icon').innerText = '✈️';
+            document.getElementById('modal-title').innerText = '¡DESPEGUE PERFECTO!';
+            document.getElementById('modal-title').className = 'text-2xl font-black text-emerald-400 tracking-wide';
+            document.getElementById('modal-desc').innerText = 'Has despegado con éxito, alcazando la altitud de crucero inicial con parámetros óptimos.';
+            document.getElementById('modal-stats').innerHTML = `
+                <div class="flex justify-between"><span>Velocidad de Rotación (VR):</span> <span class="text-white">135 KTS</span></div>
+                <div class="flex justify-between"><span>Altitud Alcanzada:</span> <span class="text-emerald-400">1,000 FT</span></div>
+                <div class="flex justify-between"><span>Configuración Flaps:</span> <span class="text-white">${state.flaps}°</span></div>
+                <div class="flex justify-between"><span>Estado del Tren:</span> <span class="text-white">${state.gearDown ? 'Bajado' : 'Retraído'}</span></div>
+            `;
+            modal.classList.remove('hidden');
+        }
+
+        function resetSimulation() {
+            state.phase = 'prep';
+            state.speed = 0;
+            state.alt = 0;
+            state.vsi = 0;
+            state.pitch = 0;
+            state.roll = 0;
+            state.throttle = 0;
+            state.flaps = 15;
+            state.gearDown = true;
+            state.brakesOn = true;
+            state.pullingYoke = false;
+            state.distance = 0;
+            state.hasPlayedV1 = false;
+            state.hasPlayedVR = false;
+            state.hasPlayedV2 = false;
+            
+            document.getElementById('throttle-slider').value = 0;
+            document.getElementById('throttle-label').innerText = '0%';
+            setFlaps(15);
+            
+            let brakesBtn = document.getElementById('brakes-btn');
+            brakesBtn.className = "bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-3 rounded-lg text-xs shadow-lg transition flex flex-col items-center justify-center";
+            document.getElementById('brakes-status').innerText = "APLICADOS (ON)";
+
+            let gearBtn = document.getElementById('gear-btn');
+            gearBtn.className = "bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-lg text-xs shadow-lg transition flex flex-col items-center justify-center";
+            document.getElementById('gear-status').innerText = "BAJADO (DOWN)";
+
+            document.getElementById('modal-overlay').classList.add('hidden');
+            updatePhaseUI("FASE: PREPARACIÓN EN PISTA (HOLD SHORT)");
+        }
+
+        // Start animation loop on window load
+        window.onload = function() {
+            requestAnimationFrame(updatePhysics);
+        };
+    </script>
+</body>
+</html>
